@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
 :root{
+  --left:#2a78d6; --right:#eb6834;
   --bg:#F6FAF8; --surface:#FFFFFF; --ink:#23302B; --ink-2:#5E6E67; --ink-3:#98A6A0; --line:rgba(35,48,43,.09);
   --mint:#8FD3BA; --mint-deep:#2E8467; --mint-soft:#E3F4ED; --peach:#FFB997; --peach-soft:#FFEDE3; --peach-deep:#C4633F;
   --lav-soft:#EEEBFB; --lav-deep:#6555B8; --danger:#C94A5E; --danger-soft:#FBE8EB;
@@ -88,6 +89,27 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
 .toast{position:fixed;left:50%;bottom:calc(100px + var(--safe-b));transform:translate(-50%,16px);opacity:0;background:rgba(35,48,43,.94);color:#fff;
   padding:11px 16px;border-radius:12px;font-size:15px;transition:.3s;z-index:40;pointer-events:none;width:max-content;max-width:calc(100% - 32px);text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.chart{margin-top:14px;padding:14px 14px 10px;position:relative}
+.chart-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.chart-head h3{margin:0;font-size:15px;font-weight:700}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.chart-body{display:flex}
+#chartAxis{flex:none;width:34px}
+.chart-scroll{flex:1;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.chart svg{display:block}
+.chart .grid{stroke:#E6ECE9;stroke-width:1}
+.chart .axis{fill:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
+.chart .grp{cursor:pointer;outline:none}
+.chart .grp:hover .bar,.chart .grp:focus .bar,.chart .grp.on .bar{filter:brightness(1.12)}
+.chart .grp:focus-visible .hit{stroke:var(--mint-deep);stroke-width:1.5}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border-radius:11px;box-shadow:0 4px 18px rgba(20,40,30,.16);padding:8px 11px;font-size:13px;min-width:120px;z-index:2}
+.tip .h{color:var(--ink-3);font-weight:600;margin-bottom:3px}
+.tip .r{display:flex;align-items:center;gap:7px;line-height:1.55}
+.tip .r i{width:12px;height:2px;border-radius:1px;display:inline-block}
+.tip .r b{font-variant-numeric:tabular-nums;min-width:34px}
+.tip .r em{font-style:normal;color:var(--ink-2)}
 .banner{background:var(--peach-soft);color:var(--peach-deep);border-radius:12px;padding:10px 14px;font-size:14px;margin-top:12px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -126,6 +148,12 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
   </div>
 
   <div class="card" id="dayView"></div>
+  <div class="card chart" id="chartCard">
+    <div class="chart-head"><h3>Daily volume (mL)</h3>
+      <div class="legend"><span><i style="background:var(--left)"></i>Left</span><span><i style="background:var(--right)"></i>Right</span></div></div>
+    <div class="chart-body"><div id="chartAxis"></div><div class="chart-scroll" id="chartScroll"></div></div>
+    <div class="tip" id="tip" hidden></div>
+  </div>
   <div class="card" id="logView" hidden></div>
   <p class="sub" style="text-align:center;margin-top:18px"><button class="link" id="signOut" style="color:var(--ink-3);font-weight:500">Sign out</button></p>
 </main>
@@ -183,8 +211,11 @@ let sb, rows = [];
 async function initStore() {
   if (demo) {
     const now = Date.now(), h = 36e5;
-    rows = [[2, 20, 25], [9, 30, 35, "Pinkish, thin"], [14, 25, 30], [26, 40, 45], [33, 35, 40], [38, 45, 50], [50, 55, 60], [57, 50, 45]]
-      .map(([ago, l, r, note], i) => ({ id: "d" + i, logged_at: new Date(now - ago * h).toISOString(), left_ml: l, right_ml: r, note: note || null }));
+    rows = [];
+    for (let day = 0; day < 12; day++) for (const hr of [2, 9, 16]) {   // ~12 days, tapering like a real drain
+      const k = Math.max(0.15, 1 - day / 14), jit = (n) => Math.round(n * k * (0.8 + ((day * 7 + hr) % 5) / 10));
+      rows.push({ id: `d${day}-${hr}`, logged_at: new Date(now - (day * 24 + hr) * h).toISOString(), left_ml: jit(12), right_ml: hr === 16 && day % 4 === 3 ? null : jit(16), note: day === 0 && hr === 9 ? "Pinkish, thin" : null });
+    }
     $("#demoBanner").hidden = false;
     return;
   }
@@ -243,9 +274,80 @@ function render() {
       <td class="${r.right_ml == null ? "dash" : ""}">${r.right_ml == null ? "—" : ml(r.right_ml)}</td><td class="t">${ml(tot)}</td></tr>`;
   }
   $("#logView").innerHTML = !rows.length ? empty : `<table><thead><tr><th>Time</th><th>Left</th><th>Right</th><th>Total</th></tr></thead><tbody>${body}</tbody></table>`;
-  $("#dayView").hidden = view !== "day"; $("#logView").hidden = view !== "log";
+  $("#dayView").hidden = view !== "day"; $("#chartCard").hidden = view !== "day" || !days.length; $("#logView").hidden = view !== "log";
+  if (view === "day" && days.length) drawChart([...days].reverse());
   $("#vDay").setAttribute("aria-pressed", view === "day"); $("#vLog").setAttribute("aria-pressed", view === "log");
 }
+
+// ---------- daily bar chart (Left vs Right, grouped columns) ----------
+function niceScale(v) { // clean whole-number ticks, ~4 steps
+  const raw = Math.max(v, 4) / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  const step = Math.max(1, (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p);
+  const max = Math.ceil(Math.max(v, 1) / step) * step;
+  return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
+}
+function drawChart(days) { // oldest → newest
+  const wrap = $("#chartScroll"), axis = $("#chartAxis"), H = 190, padL = 6, padR = 18, padT = 10, padB = 34, axisW = 34;
+  const avail = Math.max(220, wrap.clientWidth || 300);
+  const slot = Math.max(34, Math.min(56, (avail - padL - padR) / days.length));  // compress before scrolling
+  const bar = Math.min(18, Math.floor((slot - 10) / 2)), gap = 2, group = bar * 2 + gap;
+  const plotW = Math.max(avail - padL - padR, days.length * slot), W = plotW + padL + padR;
+  const step = plotW / days.length;
+  const { max, ticks } = niceScale(Math.max(...days.map((d) => Math.max(d.left, d.right))));
+  const y = (v) => padT + (H - padT - padB) * (1 - v / max);
+  const col = (x, v, color) => { // 4px rounded top, square at the baseline
+    const top = y(v), base = y(0), h = base - top;
+    if (h <= 0.5) return "";
+    const r = Math.min(4, h, bar / 2);
+    return `<path class="bar" fill="${color}" d="M${x},${base}V${top + r}Q${x},${top} ${x + r},${top}H${x + bar - r}Q${x + bar},${top} ${x + bar},${top + r}V${base}Z"/>`;
+  };
+  const every = Math.ceil(days.length / Math.max(1, Math.floor(plotW / 58))); // thin x labels when crowded
+  let g = ticks.map((t) => `<line class="grid" x1="0" x2="${W}" y1="${y(t)}" y2="${y(t)}"/>`).join("");
+  // y-axis lives outside the scroller so it stays put while the days scroll
+  axis.innerHTML = `<svg width="${axisW}" height="${H}" aria-hidden="true">${ticks.map((t) =>
+    `<text class="axis" x="${axisW - 6}" y="${y(t) + 4}" text-anchor="end">${ml(t)}</text>`).join("")}</svg>`;
+  days.forEach((d, i) => {
+    const cx = padL + step * i + step / 2, x0 = cx - group / 2;
+    const label = new Date(d.day + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", month: "numeric", day: "numeric" });
+    g += `<g class="grp" data-i="${i}" tabindex="0" aria-label="${fmtDay(d.day)}: left ${ml(d.left)} mL, right ${ml(d.right)} mL">
+      <rect class="hit" x="${padL + step * i}" y="${padT}" width="${step}" height="${H - padT - padB + 22}" fill="transparent" rx="6"/>
+      ${d.hasL ? col(x0, d.left, "var(--left)") : ""}${d.hasR ? col(x0 + bar + gap, d.right, "var(--right)") : ""}
+      ${i % every === 0 || i === days.length - 1 ? `<text class="axis" x="${cx}" y="${H - padB + 18}" text-anchor="middle">${label}</text>` : ""}</g>`;
+  });
+  wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily left and right drain volume in mL">${g}</svg>`;
+  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; }); // newest day in view
+
+  const tip = $("#tip"), card = $("#chartCard");
+  const show = (el) => {
+    const d = days[+el.dataset.i]; if (!d) return;
+    card.querySelectorAll(".grp.on").forEach((n) => n.classList.remove("on")); el.classList.add("on");
+    tip.replaceChildren();
+    const h = document.createElement("div"); h.className = "h"; h.textContent = fmtDay(d.day); tip.append(h);
+    for (const [name, v, c, has] of [["Left", d.left, "var(--left)", d.hasL], ["Right", d.right, "var(--right)", d.hasR], ["Total", d.left + d.right, "", true]]) {
+      const r = document.createElement("div"); r.className = "r";
+      const k = document.createElement("i"); k.style.background = c || "transparent";
+      const b = document.createElement("b"); b.textContent = has ? ml(v) : "—";
+      const em = document.createElement("em"); em.textContent = name === "Total" ? "Total mL" : name;
+      r.append(k, b, em); tip.append(r);
+    }
+    tip.hidden = false;
+    const cr = card.getBoundingClientRect(), er = el.getBoundingClientRect();
+    let left = er.right - cr.left + 4;                                   // beside the group, not over it
+    if (left + tip.offsetWidth > cr.width - 6) left = er.left - cr.left - tip.offsetWidth - 4;
+    tip.style.left = Math.max(6, left) + "px"; tip.style.top = (er.top - cr.top + 4) + "px";
+  };
+  const hide = () => { tip.hidden = true; card.querySelectorAll(".grp.on").forEach((n) => n.classList.remove("on")); };
+  wrap.querySelectorAll(".grp").forEach((el) => {
+    el.addEventListener("pointerenter", () => show(el));
+    el.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+    el.addEventListener("click", () => show(el));
+    el.addEventListener("focus", () => show(el));
+    el.addEventListener("blur", hide);
+  });
+  wrap.onscroll = hide;
+}
+addEventListener("resize", () => view === "day" && rows.length && render());
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest?.("#chartCard")) $("#tip").hidden = true; });
 
 // ---------- entry sheet ----------
 let editing = null;
@@ -299,8 +401,9 @@ $("#exportBtn").addEventListener("click", () => {
 // ---------- auth, boot, sync ----------
 async function enterApp() {
   if (!demo && ok(await sb.rpc("is_member")) !== true) { $("#authMsg").textContent = "This account isn't on the family list. Add its email to allowed_emails in Supabase."; return showAuth(); }
-  await load(); render();
+  await load();
   $("#auth").hidden = true; $("#app").hidden = false; $("#fab").hidden = false;
+  render(); // after unhiding, so the chart can measure its width
   if (!demo) {
     const refresh = async () => { try { await load(); render(); } catch {} };
     sb.channel("drain-sync").on("postgres_changes", { event: "*", schema: "public", table: "drain_log" }, refresh).subscribe();
