@@ -90,17 +90,26 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
   padding:11px 16px;border-radius:12px;font-size:15px;transition:.3s;z-index:40;pointer-events:none;width:max-content;max-width:calc(100% - 32px);text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .chart{margin-top:14px;padding:14px 14px 10px;position:relative}
-.chart-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.chart-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-bottom:6px}
 .chart-head h3{margin:0;font-size:15px;font-weight:700}
-.legend{display:flex;gap:14px;font-size:13px;color:var(--ink-2)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.legend i.ln{width:16px;height:0;border-radius:0;border-top:2px dotted var(--ink-2)}
+.legend i.ln.goal{border-top:2px dashed var(--mint-deep)}
 .chart-body{display:flex}
 #chartAxis{flex:none;width:34px}
 .chart-scroll{flex:1;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 .chart svg{display:block}
 .chart .grid{stroke:#E6ECE9;stroke-width:1}
 .chart .axis{fill:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
+.chart .axis.gl{fill:var(--mint-deep);font-weight:700}
+.chart .goal{stroke:var(--mint-deep);stroke-width:1.5;stroke-dasharray:7 5;pointer-events:none}
+.chart .pzone{fill:var(--mint-soft);opacity:.55;pointer-events:none}
+.chart .ptag{fill:var(--mint-deep);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;pointer-events:none}
+.chart .proj{fill:none;stroke-width:2;stroke-dasharray:1 5;stroke-linecap:round;pointer-events:none}
+.chart .pdot{fill:#fff;stroke-width:2;pointer-events:none}
+.chart-note{font-size:12px;color:var(--ink-3);margin:6px 2px 0}
 .chart .grp{cursor:pointer;outline:none}
 .chart .grp:hover .bar,.chart .grp:focus .bar,.chart .grp.on .bar{filter:brightness(1.12)}
 .chart .grp:focus-visible .hit{stroke:var(--mint-deep);stroke-width:1.5}
@@ -110,6 +119,7 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
 .tip .r i{width:12px;height:2px;border-radius:1px;display:inline-block}
 .tip .r b{font-variant-numeric:tabular-nums;min-width:34px}
 .tip .r em{font-style:normal;color:var(--ink-2)}
+.tip .h.p{margin-top:5px}
 .banner{background:var(--peach-soft);color:var(--peach-deep);border-radius:12px;padding:10px 14px;font-size:14px;margin-top:12px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -150,8 +160,9 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
   <div class="card" id="dayView"></div>
   <div class="card chart" id="chartCard">
     <div class="chart-head"><h3>Daily volume (mL)</h3>
-      <div class="legend"><span><i style="background:var(--left)"></i>Left</span><span><i style="background:var(--right)"></i>Right</span></div></div>
+      <div class="legend"><span><i style="background:var(--left)"></i>Left</span><span><i style="background:var(--right)"></i>Right</span><span><i class="ln"></i>Projected</span><span><i class="ln goal"></i>25 mL goal</span></div></div>
     <div class="chart-body"><div id="chartAxis"></div><div class="chart-scroll" id="chartScroll"></div></div>
+    <p class="chart-note" id="chartNote"></p>
     <div class="tip" id="tip" hidden></div>
   </div>
   <div class="card" id="logView" hidden></div>
@@ -213,7 +224,7 @@ async function initStore() {
     const now = Date.now(), h = 36e5;
     rows = [];
     for (let day = 0; day < 12; day++) for (const hr of [2, 9, 16]) {   // ~12 days, tapering like a real drain
-      const k = Math.max(0.15, 1 - day / 14), jit = (n) => Math.round(n * k * (0.8 + ((day * 7 + hr) % 5) / 10));
+      const k = Math.max(0.15, 1 - (11 - day) / 14), jit = (n) => Math.round(n * k * (0.8 + ((day * 7 + hr) % 5) / 10));
       rows.push({ id: `d${day}-${hr}`, logged_at: new Date(now - (day * 24 + hr) * h).toISOString(), left_ml: jit(12), right_ml: hr === 16 && day % 4 === 3 ? null : jit(16), note: day === 0 && hr === 9 ? "Pinkish, thin" : null });
     }
     $("#demoBanner").hidden = false;
@@ -279,7 +290,36 @@ function render() {
   $("#vDay").setAttribute("aria-pressed", view === "day"); $("#vLog").setAttribute("aria-pressed", view === "log");
 }
 
-// ---------- daily bar chart (Left vs Right, grouped columns) ----------
+// ---------- daily bar chart (Left vs Right, grouped columns) + 7-day projection + goal line ----------
+const GOAL_ML = 25;     // target per drain per day (held for a 2-day streak)
+const PROJ_DAYS = 7;    // days projected, starting today
+const PROJ_WINDOW = 7;  // most recent completed days used for the fit
+const DAY_MS = 864e5;
+const dayNum = (k) => Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / DAY_MS;
+const addDays = (k, n) => new Date((dayNum(k) + n) * DAY_MS).toISOString().slice(0, 10);
+
+/** Projects one drain's daily output for PROJ_DAYS days starting today (CT).
+ *  Fits a decay/growth trend (least squares on ln(mL+1)) to the last PROJ_WINDOW *completed* days, i.e. days before today.
+ *  Today's partial total is never used, so the projection only changes when a day completes (or an older entry is edited).
+ *  Fewer than 3 completed days → flat line at their average. Growth is capped at 1.5x the window's peak. */
+function projectSide(days, side, today) {
+  const has = side === "left" ? "hasL" : "hasR";
+  const done = days.filter((d) => d.day < today && d[has]).slice(-PROJ_WINDOW);
+  if (!done.length) return null;
+  const xs = done.map((d) => dayNum(d.day) - dayNum(done[0].day)), vs = done.map((d) => d[side]);
+  const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  const ys = vs.map((v) => Math.log(v + 1)), mx = mean(xs), my = mean(ys);
+  let slope = 0;
+  if (done.length >= 3) {
+    let nu = 0, de = 0; xs.forEach((x, i) => { nu += (x - mx) * (ys[i] - my); de += (x - mx) ** 2; });
+    slope = de ? nu / de : 0;
+  }
+  const cap = Math.max(...vs) * 1.5, flat = mean(vs), x0 = dayNum(done[0].day);
+  const at = (day) => { const v = done.length >= 3 ? Math.exp(my + slope * (dayNum(day) - x0 - mx)) - 1 : flat; return Math.round(Math.min(cap, Math.max(0, v)) * 10) / 10; };
+  const last = done[done.length - 1];
+  return { anchor: { day: last.day, v: last[side] }, pts: Array.from({ length: PROJ_DAYS }, (_, i) => { const day = addDays(today, i); return { day, v: at(day) }; }), used: done.length };
+}
+
 function niceScale(v) { // clean whole-number ticks, ~4 steps
   const raw = Math.max(v, 4) / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
   const step = Math.max(1, (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p);
@@ -287,13 +327,27 @@ function niceScale(v) { // clean whole-number ticks, ~4 steps
   return { max, ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step) };
 }
 function drawChart(days) { // oldest → newest
+  const today = dayKey(new Date());
+  const pL = projectSide(days, "left", today), pR = projectSide(days, "right", today);
+  const cols = days.map((d) => ({ ...d }));
+  if (pL || pR) {
+    const byDay = new Map(cols.map((c) => [c.day, c]));
+    for (let i = 0; i < PROJ_DAYS; i++) {
+      const k = addDays(today, i);
+      if (!byDay.has(k)) { const c = { day: k, left: 0, right: 0, n: 0, hasL: false, hasR: false }; cols.push(c); byDay.set(k, c); }
+      const c = byDay.get(k); if (pL) c.pL = pL.pts[i].v; if (pR) c.pR = pR.pts[i].v;
+    }
+    cols.sort((a, b) => a.day.localeCompare(b.day));
+  }
+  const isProj = (c) => c.pL != null || c.pR != null, fi = cols.findIndex(isProj);
+
   const wrap = $("#chartScroll"), axis = $("#chartAxis"), H = 190, padL = 6, padR = 18, padT = 10, padB = 34, axisW = 34;
   const avail = Math.max(220, wrap.clientWidth || 300);
-  const slot = Math.max(34, Math.min(56, (avail - padL - padR) / days.length));  // compress before scrolling
+  const slot = Math.max(34, Math.min(56, (avail - padL - padR) / cols.length));  // compress before scrolling
   const bar = Math.min(18, Math.floor((slot - 10) / 2)), gap = 2, group = bar * 2 + gap;
-  const plotW = Math.max(avail - padL - padR, days.length * slot), W = plotW + padL + padR;
-  const step = plotW / days.length;
-  const { max, ticks } = niceScale(Math.max(...days.map((d) => Math.max(d.left, d.right))));
+  const plotW = Math.max(avail - padL - padR, cols.length * slot), W = plotW + padL + padR;
+  const step = plotW / cols.length;
+  const { max, ticks } = niceScale(Math.max(GOAL_ML, ...cols.map((d) => Math.max(d.left, d.right, d.pL || 0, d.pR || 0))));
   const y = (v) => padT + (H - padT - padB) * (1 - v / max);
   const col = (x, v, color) => { // 4px rounded top, square at the baseline
     const top = y(v), base = y(0), h = base - top;
@@ -301,34 +355,70 @@ function drawChart(days) { // oldest → newest
     const r = Math.min(4, h, bar / 2);
     return `<path class="bar" fill="${color}" d="M${x},${base}V${top + r}Q${x},${top} ${x + r},${top}H${x + bar - r}Q${x + bar},${top} ${x + bar},${top + r}V${base}Z"/>`;
   };
-  const every = Math.ceil(days.length / Math.max(1, Math.floor(plotW / 58))); // thin x labels when crowded
-  let g = ticks.map((t) => `<line class="grid" x1="0" x2="${W}" y1="${y(t)}" y2="${y(t)}"/>`).join("");
+  const cxOf = (i) => padL + step * i + step / 2;
+  const sideX = (i, s) => cxOf(i) - group / 2 + (s === "left" ? bar / 2 : bar + gap + bar / 2); // centre of that side's bar
+  const every = Math.ceil(cols.length / Math.max(1, Math.floor(plotW / 58))); // thin x labels when crowded
+
+  let g = fi >= 0 ? `<rect class="pzone" x="${padL + step * fi}" y="${padT}" width="${step * (cols.length - fi)}" height="${H - padT - padB}" rx="8"/>
+    <text class="ptag" x="${padL + step * fi + 8}" y="${padT + 12}">Projected</text>` : "";
+  g += ticks.map((t) => `<line class="grid" x1="0" x2="${W}" y1="${y(t)}" y2="${y(t)}"/>`).join("");
   // y-axis lives outside the scroller so it stays put while the days scroll
-  axis.innerHTML = `<svg width="${axisW}" height="${H}" aria-hidden="true">${ticks.map((t) =>
-    `<text class="axis" x="${axisW - 6}" y="${y(t) + 4}" text-anchor="end">${ml(t)}</text>`).join("")}</svg>`;
-  days.forEach((d, i) => {
-    const cx = padL + step * i + step / 2, x0 = cx - group / 2;
+  const yl = ticks.filter((t) => Math.abs(y(t) - y(GOAL_ML)) >= 14);  // drop a tick label that would collide with the goal's "25"
+  axis.innerHTML = `<svg width="${axisW}" height="${H}" aria-hidden="true">${yl.map((t) =>
+    `<text class="axis" x="${axisW - 6}" y="${y(t) + 4}" text-anchor="end">${ml(t)}</text>`).join("")}
+    <text class="axis gl" x="${axisW - 6}" y="${y(GOAL_ML) + 4}" text-anchor="end">${GOAL_ML}</text></svg>`;
+  cols.forEach((d, i) => {
+    const cx = cxOf(i), x0 = cx - group / 2;
     const label = new Date(d.day + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", month: "numeric", day: "numeric" });
-    g += `<g class="grp" data-i="${i}" tabindex="0" aria-label="${fmtDay(d.day)}: left ${ml(d.left)} mL, right ${ml(d.right)} mL">
+    const pj = isProj(d) ? `, projected left ${ml(d.pL)} mL, right ${ml(d.pR)} mL` : "";
+    g += `<g class="grp" data-i="${i}" tabindex="0" aria-label="${fmtDay(d.day)}: ${d.n ? `left ${ml(d.left)} mL, right ${ml(d.right)} mL` : "no entries"}${pj}">
       <rect class="hit" x="${padL + step * i}" y="${padT}" width="${step}" height="${H - padT - padB + 22}" fill="transparent" rx="6"/>
       ${d.hasL ? col(x0, d.left, "var(--left)") : ""}${d.hasR ? col(x0 + bar + gap, d.right, "var(--right)") : ""}
-      ${i % every === 0 || i === days.length - 1 ? `<text class="axis" x="${cx}" y="${H - padB + 18}" text-anchor="middle">${label}</text>` : ""}</g>`;
+      ${i % every === 0 || i === cols.length - 1 ? `<text class="axis" x="${cx}" y="${H - padB + 18}" text-anchor="middle">${label}</text>` : ""}</g>`;
   });
-  wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily left and right drain volume in mL">${g}</svg>`;
-  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; }); // newest day in view
+  g += `<line class="goal" x1="0" x2="${W}" y1="${y(GOAL_ML)}" y2="${y(GOAL_ML)}"/>`;
+  // projection lines: from the last completed day's actual value, through each projected day, aligned with that drain's bars
+  for (const [side, p, color] of [["left", pL, "var(--left)"], ["right", pR, "var(--right)"]]) {
+    if (!p) continue;
+    const pts = [];
+    const ai = cols.findIndex((c) => c.day === p.anchor.day);
+    if (ai >= 0) pts.push([sideX(ai, side), y(p.anchor.v)]);
+    const dots = p.pts.map((q) => [sideX(cols.findIndex((c) => c.day === q.day), side), y(q.v)]);
+    const all = pts.concat(dots);
+    g += `<path class="proj" stroke="${color}" d="${all.map((q, i) => `${i ? "L" : "M"}${q[0].toFixed(1)},${q[1].toFixed(1)}`).join("")}"/>`;
+    g += dots.map((q) => `<circle class="pdot" stroke="${color}" cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="3.5"/>`).join("");
+  }
+  wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily left and right drain volume in mL, with a 7-day projection and a ${GOAL_ML} mL goal line">${g}</svg>`;
+  requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; }); // newest day + projection in view
+  $("#chartNote").textContent = fi >= 0
+    ? `Dotted lines estimate the next ${PROJ_DAYS} days per drain from up to ${PROJ_WINDOW} completed days, and refresh when a day completes. Dashed line: ${GOAL_ML} mL goal.`
+    : `Projections appear once at least one full day is logged. Dashed line: ${GOAL_ML} mL goal.`;
 
   const tip = $("#tip"), card = $("#chartCard");
   const show = (el) => {
-    const d = days[+el.dataset.i]; if (!d) return;
+    const d = cols[+el.dataset.i]; if (!d) return;
     card.querySelectorAll(".grp.on").forEach((n) => n.classList.remove("on")); el.classList.add("on");
     tip.replaceChildren();
-    const h = document.createElement("div"); h.className = "h"; h.textContent = fmtDay(d.day); tip.append(h);
-    for (const [name, v, c, has] of [["Left", d.left, "var(--left)", d.hasL], ["Right", d.right, "var(--right)", d.hasR], ["Total", d.left + d.right, "", true]]) {
+    const head = (t, cls = "") => { const h = document.createElement("div"); h.className = "h " + cls; h.textContent = t; tip.append(h); };
+    const line = (name, txt, c) => {
       const r = document.createElement("div"); r.className = "r";
       const k = document.createElement("i"); k.style.background = c || "transparent";
-      const b = document.createElement("b"); b.textContent = has ? ml(v) : "—";
-      const em = document.createElement("em"); em.textContent = name === "Total" ? "Total mL" : name;
+      const b = document.createElement("b"); b.textContent = txt;
+      const em = document.createElement("em"); em.textContent = name;
       r.append(k, b, em); tip.append(r);
+    };
+    head(fmtDay(d.day) + (d.n ? "" : " · projected"));
+    if (d.n) {
+      const sfx = d.day === today ? " so far" : "";
+      line("Left" + sfx, d.hasL ? ml(d.left) : "—", "var(--left)");
+      line("Right" + sfx, d.hasR ? ml(d.right) : "—", "var(--right)");
+      line("Total mL" + sfx, ml(d.left + d.right), "");
+    }
+    if (isProj(d)) {
+      if (d.n) head("Projected full day", "p");
+      if (d.pL != null) line("Left", "~" + ml(d.pL), "var(--left)");
+      if (d.pR != null) line("Right", "~" + ml(d.pR), "var(--right)");
+      line("Total mL", "~" + ml((d.pL || 0) + (d.pR || 0)), "");
     }
     tip.hidden = false;
     const cr = card.getBoundingClientRect(), er = el.getBoundingClientRect();
