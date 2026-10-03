@@ -42,6 +42,8 @@ h1{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:4px 0 2px}
 .seg{display:flex;background:rgba(35,48,43,.06);border-radius:11px;padding:3px;margin:18px 0 12px}
 .seg button{flex:1;height:36px;border-radius:9px;font-weight:650;font-size:15px;color:var(--ink-2)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+#dayView{overflow-y:auto;-webkit-overflow-scrolling:touch;max-height:362px}
+#dayView th{position:sticky;top:0;background:var(--surface);z-index:1}
 .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
 table{width:100%;border-collapse:collapse}
 th{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);text-align:right;padding:12px 14px 8px;border-bottom:1px solid var(--line)}
@@ -95,6 +97,7 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.legend.bottom{justify-content:center;margin-top:8px}
 .legend i.ln{width:16px;height:0;border-radius:0;border-top:2px dotted var(--ink-2)}
 .legend i.ln.goal{border-top:2px dashed var(--mint-deep)}
 .chart-body{display:flex}
@@ -159,9 +162,9 @@ textarea.in{height:70px;padding:12px 14px;font-size:16px;resize:none}
 
   <div class="card" id="dayView"></div>
   <div class="card chart" id="chartCard">
-    <div class="chart-head"><h3>Daily volume (mL)</h3>
-      <div class="legend"><span><i style="background:var(--left)"></i>Left</span><span><i style="background:var(--right)"></i>Right</span><span><i class="ln"></i>Projected</span><span><i class="ln goal"></i>25 mL goal</span></div></div>
+    <div class="chart-head"><h3>Daily volume (mL)</h3></div>
     <div class="chart-body"><div id="chartAxis"></div><div class="chart-scroll" id="chartScroll"></div></div>
+    <div class="legend bottom"><span><i style="background:var(--left)"></i>Left</span><span><i style="background:var(--right)"></i>Right</span><span><i class="ln"></i>Projected</span><span><i class="ln goal"></i>25 mL goal</span></div>
     <p class="chart-note" id="chartNote"></p>
     <div class="tip" id="tip" hidden></div>
   </div>
