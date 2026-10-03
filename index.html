@@ -292,7 +292,7 @@ function render() {
 
 // ---------- daily bar chart (Left vs Right, grouped columns) + 7-day projection + goal line ----------
 const GOAL_ML = 25;     // target per drain per day (held for a 2-day streak)
-const PROJ_DAYS = 7;    // days projected, starting tomorrow (today is left out)
+const PROJ_DAYS = 4;    // days projected, starting tomorrow (today is left out)
 const PROJ_FROM = "2026-09-26"; // first day of data used for the fit
 const DAY_MS = 864e5;
 const dayNum = (k) => Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / DAY_MS;
@@ -342,10 +342,10 @@ function drawChart(days) { // oldest → newest
   }
   const isProj = (c) => c.pL != null || c.pR != null, fi = cols.findIndex(isProj);
 
-  const wrap = $("#chartScroll"), axis = $("#chartAxis"), H = 190, padL = 6, padR = 18, padT = 10, padB = 34, axisW = 34;
+  const wrap = $("#chartScroll"), axis = $("#chartAxis"), H = 300, padL = 6, padR = 18, padT = 10, padB = 34, axisW = 34;
   const avail = Math.max(220, wrap.clientWidth || 300);
-  const slot = Math.max(34, Math.min(56, (avail - padL - padR) / cols.length));  // compress before scrolling
-  const bar = Math.min(18, Math.floor((slot - 10) / 2)), gap = 2, group = bar * 2 + gap;
+  const slot = Math.max(22, Math.min(56, (avail - padL - padR) / cols.length));  // compress (down to 22px/day) before scrolling, so most of the history fits
+  const bar = Math.max(5, Math.min(18, Math.floor((slot - 8) / 2))), gap = 2, group = bar * 2 + gap;
   const plotW = Math.max(avail - padL - padR, cols.length * slot), W = plotW + padL + padR;
   const step = plotW / cols.length;
   const { max, ticks } = niceScale(Math.max(GOAL_ML, ...cols.map((d) => Math.max(d.left, d.right, d.pL || 0, d.pR || 0))));
